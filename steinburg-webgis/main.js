@@ -1,43 +1,50 @@
-// ======================================
-// Steinburg WebGIS - CORINE (EPSG:4326)
-// ======================================
+// ---- Steinburg WebGIS: minimal, proven WMS pattern ----
 
-// 1️⃣ Define map CRS as EPSG:4326 (since CORINE WMS supports this)
-var crs4326 = new L.Proj.CRS(
-  'EPSG:4326',
-  '+proj=longlat +datum=WGS84 +no_defs',
-  {
-    resolutions: [1.40625, 0.703125, 0.3515625, 0.17578125, 0.087890625, 0.0439453125],
-    origin: [-180, 90]
-  }
-);
+// 1) Map + basemap
+const map = L.map('map').setView([53.92, 9.52], 10);
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
 
-// 2️⃣ Initialize map with EPSG:4326 CRS
-var map = L.map('map', {
-  crs: crs4326,
-  center: [53.92, 9.52], // Steinburg area
-  zoom: 7
+// 2) Small helper: add WMS with optional proxy + loud errors
+const PROXY = 'https://corsproxy.io/?'; // comment out to try direct
+function addWMS({ title, url, options = {}, useProxy = true }) {
+  const full = useProxy ? PROXY + encodeURIComponent(url) : url;
+  const layer = L.tileLayer.wms(full, {
+    format: 'image/png',
+    transparent: true,
+    version: '1.1.1',   // safer axis order
+    ...options,
+    errorTileUrl:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' // red if failing
+  });
+  layer.on('tileerror', (e) => console.warn(`[WMS ERROR] ${title}`, e));
+  return { title, layer };
+}
+
+// 3) Known-good WMS (3857) – should show immediately when toggled
+const esriImagery = addWMS({
+  title: '🛰️ Esri World Imagery',
+  url: 'https://services.arcgisonline.com/arcgis/services/World_Imagery/MapServer/WMSServer?',
+  options: { layers: '0', transparent: false },
+  useProxy: false // Esri allows direct
 });
 
-// 3️⃣ Add base layer (OpenStreetMap in EPSG:4326)
-var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+// 4) Schleswig-Holstein boundaries (requires proxy due to CORS)
+const shKreise = addWMS({
+  title: '🧭 SH Kreisgrenzen',
+  url: 'https://geodienste.schleswig-holstein.de/ows/verwaltungsgrenzen?',
+  options: { layers: 'kreisgrenzen' },
+  useProxy: true
+});
 
-// 4️⃣ Use proxy to avoid CORS issues on GitHub Pages
-var proxy = 'https://corsproxy.io/?';
-var corineUrl = 'https://ows.mundialis.de/services/service?';
+// 5) Add overlays + control
+const overlays = {};
+[esriImagery, shKreise].forEach(({ title, layer }) => { overlays[title] = layer; });
+L.control.layers({ 'OpenStreetMap': osm }, overlays, { collapsed: false }).addTo(map);
 
-// 5️⃣ Add CORINE Land Cover WMS (EPSG:4326)
-var corine = L.tileLayer.wms(proxy + encodeURIComponent(corineUrl), {
-  layers: 'CORINE',
-  format: 'image/png',
-  transparent: true,
-  version: '1.1.1',
-  srs: 'EPSG:4326',
-  attribution: '© European Environment Agency (EEA) via mundialis.de'
-}).addTo(map);
+// 6) Show one overlay by default so you SEE something now
+shKreise.layer.addTo(map);
 
-// 6️⃣ Add layer control
-L.control.layers({ 'OpenStreetMap': osm }, { '🌍 CORINE Land Cover': corine }, { collapsed: false }).addTo(map);
+// 7) Minimal debug
+console.log('Map ready. If overlays don’t appear, check Network tab for GetMap responses (status 200 & image/png).');
